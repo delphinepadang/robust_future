@@ -1,0 +1,584 @@
+---
+title: "Robust Future Study 1: Power Analysis"
+subtitle: "Wave 1 survey · Aotearoa New Zealand and Australia"
+author: "Delphine PA Dang"
+date: "2026-11-17"
+format:
+  html:
+    theme: cosmo
+    title-block-banner: true
+    toc: true
+    toc-title: "Contents"
+    toc-depth: 2
+    number-sections: true
+    code-tools: true
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+    fig-width: 7
+    fig-height: 4
+    include-in-header:
+      text: |
+        <style>
+          body { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #24323d; }
+          .quarto-title-banner { background: linear-gradient(120deg, #3E87B5 0%, #4FA88A 100%); }
+          .quarto-title-banner .title { font-weight: 650; letter-spacing: -0.01em; }
+          section.level1 > h1 { color: #2E6E93; font-size: 1.75rem; border-bottom: 2px solid #D9EAF3;
+                                padding-bottom: .35rem; margin-top: 2.6rem; }
+          section.level2 > h2 { color: #3B7F64; font-size: 1.25rem; margin-top: 1.9rem; }
+          .summary { font-size: 1.08rem; line-height: 1.7; background: #F3F9FC; border-left: 4px solid #4E9AC7;
+                     padding: 1rem 1.3rem; border-radius: 6px; }
+          .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin: 1.4rem 0; }
+          @media (max-width: 760px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+          .kpi { background: #FFFFFF; border: 1px solid #DCE9E3; border-top: 4px solid #5DB88A; border-radius: 8px;
+                 padding: .8rem 1rem; }
+          .kpi-value { display: block; font-size: 1.9rem; font-weight: 700; color: #2E6E93; line-height: 1.1; }
+          .kpi-label { display: block; font-size: .85rem; color: #5B6B76; margin-top: .3rem; }
+          table { font-size: .92rem; }
+          thead th { background: #EAF4F9; color: #24323d; border-bottom: 2px solid #B9D7E8 !important; }
+          tbody tr:nth-child(even) { background: #F8FBF9; }
+          caption, .table-caption { color: #5B6B76; font-size: .88rem; }
+        </style>
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(knitr)
+library(ggplot2)
+
+# Assumptions: every number in this report is derived from these values ------
+alpha_main <- 0.05   # significance level
+f2_main    <- 0.02   # target effect size (Cohen's small)
+N_target   <- 400    # valid responses (Programme Proposal)
+N_min      <- 250    # stated minimum (Programme Proposal)
+P          <- 12     # predictors in the adjusted model: 3 focal + ~9 covariate terms
+P_sub      <- 8      # predictors in subgroup models (RQ3)
+miss       <- 0.15   # cases lost to item non-response (complete-case analysis)
+excl       <- 0.15   # completed surveys excluded at data-quality screening
+rel_x      <- 0.80   # reliability of study-developed climate items
+rel_y      <- 0.90   # reliability of K10
+consent    <- 0.70   # optional consent to locality linkage (RQ4)
+n_sub      <- 100    # expected RQ3 subgroup size (plan: 80-120)
+rho_main   <- 0.30   # correlation among the three stressors
+f2_int     <- 0.01   # typical interaction effect
+optin      <- 0.60   # recontact opt-in (Project Plan target)
+resp       <- 0.70   # response per wave among those recontacted
+reps       <- 2000   # simulated datasets per scenario
+
+# Analytic power: noncentral F with lambda = f2 * N (G*Power, fixed predictors) --
+power_f2 <- function(f2, n, u = 1, p = P, alpha = alpha_main) {
+  v    <- n - p - 1
+  crit <- qf(1 - alpha, u, v)
+  pf(crit, u, v, ncp = f2 * n, lower.tail = FALSE)
+}
+
+n_for_power <- function(f2, target = 0.80, ...) {
+  n <- 20
+  while (power_f2(f2, n, ...) < target) n <- n + 1
+  n
+}
+
+f2_detectable <- function(n, target = 0.80, ...) {
+  uniroot(function(f2) power_f2(f2, n, ...) - target, c(1e-4, 2))$root
+}
+
+f2_to_r  <- function(f2) sqrt(f2 / (1 + f2))                 # partial r, one predictor
+r_to_f2  <- function(r) r^2 / (1 - r^2)
+r2_j     <- function(rho) { S <- matrix(rho, 3, 3); diag(S) <- 1; 1 - 1 / solve(S)[1, 1] }
+restrict <- function(r, k) r * k / sqrt(1 - r^2 + r^2 * k^2)  # Thorndike Case II, k = SD ratio
+pct      <- function(x) sprintf("%.0f%%", 100 * x)
+# Keep headers and captions in sync with the assumptions
+fixn <- function(x) {
+  x <- gsub("N = 400", paste("N =", N_target), x, fixed = TRUE)
+  x <- gsub("N = 340", paste("N =", N_cc), x, fixed = TRUE)
+  gsub("400 valid", paste(N_target, "valid"), x, fixed = TRUE)
+}
+ktab <- function(df, ...) { names(df) <- fixn(names(df)); kable(df, ...) }
+
+# Derived quantities -----------------------------------------------------------
+N_cc    <- round(N_target * (1 - miss))         # analysed after missing data
+N_gross <- ceiling(N_target / (1 - excl))       # completed surveys for N_target valid
+N_link  <- floor(N_target * consent)            # RQ4 analysed sample
+f2_att  <- r_to_f2(f2_to_r(f2_main) * sqrt(rel_x * rel_y))   # attenuated effect
+a_lab   <- sub("^0", "", sprintf("%.2f", alpha_main))       # alpha label, e.g. ".05"
+```
+
+```{r}
+#| label: simulation
+#| include: false
+# X1 = focal stressor; X2, X3 = correlated stressors; Z = covariates.
+# beta is set so the population partial f2 for X1 equals f2.
+sim_power <- function(n = N_target, f2 = f2_main, rho = rho_main, k_cov = P - 3,
+                      errors = c("normal", "skewed"), cut = NULL, careless = 0) {
+  errors <- match.arg(errors)
+  S <- matrix(rho, 3, 3); diag(S) <- 1
+  L <- chol(S)
+  beta <- sqrt(f2 / (1 - r2_j(rho)))
+  hits <- logical(reps)
+  for (r in seq_len(reps)) {
+    X <- matrix(rnorm(n * 3), n) %*% L
+    Z <- matrix(rnorm(n * k_cov), n)
+    e <- if (errors == "normal") rnorm(n) else {
+      v <- rlnorm(n, 0, 0.8)                                  # right-skewed, like K10
+      (v - exp(0.32)) / sqrt((exp(0.64) - 1) * exp(0.64))    # mean 0, variance 1
+    }
+    y <- beta * X[, 1] + 0.1 * X[, 2] + 0.1 * X[, 3] + Z %*% rep(0.1, k_cov) + e
+    if (careless > 0) {
+      # Random responders answer each item independently, so their stressor
+      # scores are uncorrelated with each other and with their outcome.
+      idx <- sample(n, round(careless * n))
+      X[idx, ] <- matrix(rnorm(length(idx) * 3), length(idx))
+      y[idx] <- sample(y, length(idx))
+    }
+    d <- data.frame(y = as.numeric(y), X, Z)
+    p <- if (is.null(cut)) {
+      summary(lm(y ~ ., d))$coefficients["X1", 4]
+    } else {                                                  # outcome dichotomised
+      d$y <- as.integer(d$y > quantile(d$y, 1 - cut))
+      summary(glm(y ~ ., binomial, d))$coefficients["X1", 4]
+    }
+    hits[r] <- p < alpha_main
+  }
+  mean(hits)
+}
+
+set.seed(2027)
+sim <- c(
+  null     = sim_power(f2 = 0),
+  baseline = sim_power(),
+  skewed   = sim_power(errors = "skewed"),
+  median   = sim_power(cut = 0.5),
+  top20    = sim_power(cut = 0.2),
+  care10   = sim_power(careless = 0.1),
+  care20   = sim_power(careless = 0.2)
+)
+
+# Two looks at the data (halfway and at the end), each at alpha = .05
+z1 <- rnorm(1e6); z2 <- sqrt(0.5) * z1 + sqrt(0.5) * rnorm(1e6)
+two_looks <- mean(abs(z1) > qnorm(1 - alpha_main / 2) | abs(z2) > qnorm(1 - alpha_main / 2))
+```
+
+```{r}
+#| label: key-numbers
+#| include: false
+p_claim <- power_f2(f2_main, N_target)
+p_block <- power_f2(f2_main, N_target, u = 3)
+n_block <- n_for_power(f2_main, u = 3)
+p_real  <- power_f2(f2_att, N_cc)
+p_min   <- power_f2(f2_main, N_min)
+p_strict <- pf(qf(1 - alpha_main, 1, N_target - P - 1), 1, N_target - P - 1,
+               ncp = f2_main * (N_target - P - 1), lower.tail = FALSE)  # random predictors
+mc_ci <- function(p) {
+  se <- sqrt(p * (1 - p) / reps)
+  sprintf("%s (%s–%s)", pct(p), pct(max(0, p - 1.96 * se)), pct(min(1, p + 1.96 * se)))
+}
+```
+
+# Executive summary
+
+::: {.summary}
+**Power check, Study 1.** The proposal says N = `r N_target` gives 80% power for small effects (f² = `r f2_main`). That's correct (`r pct(p_claim)`), but only for one predictor with complete, error-free data. If RQ1 tests the three stressors together, power is `r pct(p_block)` at N = `r N_target`; 80% needs `r n_block`. With realistic missing data and measurement error, power falls to `r pct(p_real)`. The minimum N of `r N_min` gives `r pct(p_min)`. Subgroup, moderation and country comparisons are underpowered, so they should be exploratory.
+
+**Recommendations:** name one primary test per thesis, recruit at least `r N_gross` completed surveys to keep `r N_target` valid, justify f² from prior studies, keep K10 continuous and set a minimum sample per country.
+:::
+
+::: {.kpi-grid}
+::: {.kpi}
+[`r pct(p_claim)`]{.kpi-value}
+[Stated claim: 1 predictor, N = `r N_target`]{.kpi-label}
+:::
+::: {.kpi}
+[`r pct(p_block)`]{.kpi-value}
+[RQ1: three stressors together]{.kpi-label}
+:::
+::: {.kpi}
+[`r pct(p_real)`]{.kpi-value}
+[Realistic: missing data + measurement error]{.kpi-label}
+:::
+::: {.kpi}
+[`r N_gross`]{.kpi-value}
+[Completed surveys needed for `r N_target` valid]{.kpi-label}
+:::
+:::
+
+# Overview
+
+**Question.** Does N = `r N_target` give 80% power to detect small adjusted effects (f² = `r f2_main`) in the Study 1 regression models?
+
+**Method.** Analytic power from the noncentral F distribution (the G\*Power method), plus `r format(reps, big.mark = ",")` simulated datasets per scenario for risks a formula can't handle. Code: <https://github.com/delphinepadang/robust_future>
+
+## Assumptions
+
+```{r}
+#| label: tbl-assumptions
+#| tbl-cap: "Assumptions. All results below are computed from these values."
+ktab(data.frame(
+  Parameter = c("Valid sample size (target / minimum)", "Effect size", "Significance level",
+                "Predictors in model (full / subgroup)", "Missing data (complete-case)",
+                "Exclusions at data-quality screening", "Reliability (climate items / K10)",
+                "Linkage consent (RQ4)", "RQ3 subgroup size", "Interaction effect",
+                "Correlation among the three stressors", "Recontact opt-in / wave response"),
+  Value = c(sprintf("%d / %d", N_target, N_min),
+            sprintf("f² = %.2f (partial r = %s)", f2_main, sub("^0", "", sprintf("%.2f", f2_to_r(f2_main)))),
+            sprintf("α = %.2f", alpha_main),
+            sprintf("%d / %d", P, P_sub), pct(miss), pct(excl),
+            sprintf("%.2f / %.2f", rel_x, rel_y), pct(consent), n_sub,
+            sprintf("f² = %.2f", f2_int),
+            sprintf("%s (.50 in risk scenario)", sub("^0", "", sprintf("%.2f", rho_main))),
+            sprintf("%s / %s", pct(optin), pct(resp))),
+  Source = c("Programme Proposal", "Programme Proposal", "Programme Proposal", "Assumed",
+             "Assumed", "Assumed", "Assumed", "Assumed", "Project Plan (80–120)",
+             "Assumed", "Assumed", "Project Plan")
+), align = "llr")
+```
+
+## Main results
+
+```{r}
+#| label: tbl-key
+#| tbl-cap: "Power for the target effect unless noted. 'Valid responses needed' adds back cases lost to missing data or non-consent."
+rows <- list(
+  list("Stated claim: 1 focal predictor",            N_target, f2_main, 1, P,     1, alpha_main),
+  list("Stated minimum sample",                      N_min,    f2_main, 1, P,     1, alpha_main),
+  list("RQ1: three stressors as one block (3 df)",   N_target, f2_main, 3, P,     1, alpha_main),
+  list(sprintf("RQ1: each stressor, Bonferroni (α = %s/3)", a_lab), N_target, f2_main, 1, P, 1, alpha_main / 3),
+  list("Missing data (complete-case)",               N_cc,     f2_main, 1, P,     1 - miss, alpha_main),
+  list("Measurement error",                          N_target, f2_att,  1, P,     1, alpha_main),
+  list("Missing data + measurement error",           N_cc,     f2_att,  1, P,     1 - miss, alpha_main),
+  list("RQ4: linkage consent",                       N_link,   f2_main, 1, P,     consent, alpha_main),
+  list("RQ3 subgroup (subgroup n)",                  n_sub,    f2_main, 1, P_sub, NA, alpha_main),
+  list(sprintf("Interaction effect (f² = %.2f)", f2_int), N_target, f2_int, 1, P + 1, 1, alpha_main)
+)
+key <- do.call(rbind, lapply(rows, \(r) {
+  n80 <- n_for_power(r[[3]], u = r[[4]], p = r[[5]], alpha = r[[7]])
+  data.frame(Scenario = r[[1]], `Analysed N` = r[[2]],
+             Power = pct(power_f2(r[[3]], r[[2]], u = r[[4]], p = r[[5]], alpha = r[[7]])),
+             `Analysed N for 80%` = n80,
+             `Valid responses needed` = if (is.na(r[[6]])) "—" else as.character(ceiling(n80 / r[[6]])),
+             check.names = FALSE)
+}))
+ktab(key, align = "lrrrr")
+```
+
+::: {.callout-note}
+G\*Power's method assumes fixed predictors. Survey predictors are measured, which gives slightly lower power (`r pct(p_strict)` instead of `r pct(p_claim)` for the stated claim). The conclusions are unchanged.
+:::
+
+## Additional risks
+
+```{r}
+#| label: tbl-risks
+#| tbl-cap: "Power at the target sample size under each risk. (sim) = simulation; (approx.) = analytic approximation."
+risks <- data.frame(
+  Risk = c(
+    "K10 dichotomised at 'high distress' (top 20%) (sim)",
+    "Mild climate year: exposure SD 70% of usual (approx.)",
+    "Countries unbalanced 75/25: country interaction (approx.)",
+    "Stressors correlated (r = .5), f² from single-stressor studies",
+    "10% careless responders not removed (sim)",
+    "20% careless responders not removed (sim)",
+    "True effect smaller than planned (f² = 0.015)",
+    "Skewed K10 analysed with OLS (sim)",
+    "20 covariate terms instead of 12"
+  ),
+  Power = pct(c(
+    sim["top20"],
+    power_f2(r_to_f2(restrict(f2_to_r(f2_main), 0.7)), N_target),
+    power_f2(f2_int * (0.75 * 0.25) / 0.25, N_target, p = P + 1),
+    power_f2(f2_main * (1 - r2_j(0.5)), N_target),
+    sim["care10"], sim["care20"],
+    power_f2(0.015, N_target),
+    sim["skewed"],
+    power_f2(f2_main, N_target, p = 20)
+  )),
+  `What to do` = c(
+    "Keep K10 continuous; report cut-offs descriptively",
+    "Check exposure spread at the mid-fieldwork review",
+    "Set per-country minimums (e.g. 150 each)",
+    "Base f² on partial effects; report VIFs",
+    "Preregister screening rules",
+    "Report results with and without exclusions",
+    "Plan on a conservative f²",
+    "Not a power risk; use robust SEs",
+    "Minor"
+  ),
+  check.names = FALSE
+)
+ktab(risks, align = "lrl")
+```
+
+::: {.callout-warning}
+## Don't look at outcomes during fieldwork
+Checking results halfway (e.g. at the 4 June review) and again at the end raises false positives from `r pct(alpha_main)` to `r sprintf("%.1f%%", 100 * two_looks)`. Monitor recruitment counts only.
+:::
+
+## Power curves
+
+```{r}
+#| label: fig-power
+#| fig-cap: "Power to detect the target effect as sample size increases."
+ns <- seq(150, 800, by = 5)
+curves <- rbind(
+  data.frame(N = ns, Test = "1 predictor",
+             Power = sapply(ns, \(n) power_f2(f2_main, n))),
+  data.frame(N = ns, Test = "3-predictor block",
+             Power = sapply(ns, \(n) power_f2(f2_main, n, u = 3))),
+  data.frame(N = ns, Test = "1 predictor, Bonferroni (α/3)",
+             Power = sapply(ns, \(n) power_f2(f2_main, n, alpha = alpha_main / 3)))
+)
+
+ggplot(curves, aes(N, Power, colour = Test)) +
+  geom_hline(yintercept = 0.80, linetype = "dashed", colour = "grey60") +
+  geom_vline(xintercept = c(N_min, N_target), linetype = "dotted", colour = "grey60") +
+  geom_line(linewidth = 1.1) +
+  annotate("text", x = c(N_min, N_target), y = 0.12,
+           label = paste("N =", c(N_min, N_target)),
+           hjust = -0.1, size = 3.2, colour = "grey40") +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_colour_manual(values = c("#4E9AC7", "#5DB88A", "#9C8FD0")) +
+  labs(x = "Analysed sample size (N)", y = "Power", colour = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank())
+```
+
+# Evidence
+
+## Sample size and effect size
+
+```{r}
+#| label: tbl-n
+#| tbl-cap: "Power for the target effect by analysed sample size."
+n_vals <- c(N_target, N_cc, 300, N_min)
+ktab(data.frame(N = n_vals,
+                 Power = pct(sapply(n_vals, \(n) power_f2(f2_main, n)))),
+      align = "rr")
+```
+
+N for 80% power: **`r n_for_power(f2_main)`**; for 90% power: **`r n_for_power(f2_main, target = 0.90)`**.
+
+```{r}
+#| label: tbl-sens
+#| tbl-cap: "Power if the true effect differs from the target."
+f2_vals <- c(0.010, 0.015, 0.020, 0.025, 0.030)
+ktab(data.frame(
+  `f²` = sprintf("%.3f", f2_vals),
+  `Partial r` = sprintf("%.2f", f2_to_r(f2_vals)),
+  `Power, N = 400` = pct(sapply(f2_vals, \(f) power_f2(f, N_target))),
+  `Power, N = 340` = pct(sapply(f2_vals, \(f) power_f2(f, N_cc))),
+  check.names = FALSE), align = "rrrr")
+```
+
+```{r}
+#| label: tbl-detect
+#| tbl-cap: "Smallest effect detectable with 80% power (one predictor)."
+n_vals <- c(N_target, N_cc, N_link, N_min, 200)
+sub_vals <- c(120, n_sub, 80, 60)
+f2_full <- sapply(n_vals, \(n) f2_detectable(n))
+f2_sub  <- sapply(sub_vals, \(n) f2_detectable(n, p = P_sub))
+ktab(data.frame(
+  Model = c(rep(sprintf("Full (%d predictors)", P), length(n_vals)),
+            rep(sprintf("Subgroup (%d predictors)", P_sub), length(sub_vals))),
+  n = c(n_vals, sub_vals),
+  `f²` = sprintf("%.3f", c(f2_full, f2_sub)),
+  `Partial r` = sprintf("%.2f", f2_to_r(c(f2_full, f2_sub))),
+  check.names = FALSE), align = "lrrr")
+```
+
+## Research questions
+
+```{r}
+#| label: tbl-rq1
+#| tbl-cap: "RQ1: three stressors and two outcomes."
+ktab(data.frame(
+  Test = c("3-df block", sprintf("Each stressor (α = %s/3)", a_lab),
+           sprintf("3 stressors × 2 outcomes (α = %s/6)", a_lab)),
+  `Power at N = 400` = pct(c(power_f2(f2_main, N_target, u = 3),
+                             power_f2(f2_main, N_target, alpha = alpha_main / 3),
+                             power_f2(f2_main, N_target, alpha = alpha_main / 6))),
+  `N for 80%` = c(n_for_power(f2_main, u = 3),
+                  n_for_power(f2_main, alpha = alpha_main / 3),
+                  n_for_power(f2_main, alpha = alpha_main / 6)),
+  check.names = FALSE), align = "lrr")
+```
+
+```{r}
+#| label: tbl-rq3
+#| tbl-cap: "RQ3 subgroup: power by subgroup size and effect size."
+n_vals <- c(60, 80, n_sub, 120, 150)
+ktab(data.frame(
+  n = n_vals,
+  `f² = 0.02` = pct(sapply(n_vals, \(n) power_f2(0.02, n, p = P_sub))),
+  `f² = 0.05` = pct(sapply(n_vals, \(n) power_f2(0.05, n, p = P_sub))),
+  `f² = 0.10` = pct(sapply(n_vals, \(n) power_f2(0.10, n, p = P_sub))),
+  check.names = FALSE), align = "rrrr")
+```
+
+```{r}
+#| label: tbl-int
+#| tbl-cap: "RQ2 and RQ5: interaction effects at the target sample size."
+f2_ints <- c(0.005, 0.01, 0.02)
+ktab(data.frame(
+  `Interaction f²` = f2_ints,
+  `Power at N = 400` = pct(sapply(f2_ints, \(f) power_f2(f, N_target, p = P + 1))),
+  `N for 80%` = sapply(f2_ints, \(f) n_for_power(f, p = P + 1)),
+  check.names = FALSE), align = "rrr")
+```
+
+```{r}
+#| label: tbl-country
+#| tbl-cap: "RQ5: unbalanced country split (approx.: interaction f² scales with p(1 − p))."
+split <- c(0.50, 0.60, 0.75)
+ktab(data.frame(
+  `Split (larger/smaller)` = sprintf("%.0f/%.0f", 100 * split, 100 * (1 - split)),
+  `Smaller country n` = round(N_target * (1 - split)),
+  `Interaction power (assumed f²)` = pct(sapply(split, \(s) power_f2(f2_int * s * (1 - s) / 0.25, N_target, p = P + 1))),
+  `Within-country power (target f²)` = pct(sapply(split, \(s) power_f2(f2_main, round(N_target * (1 - s)), p = P - 1))),
+  check.names = FALSE), align = "rrrr")
+```
+
+```{r}
+#| label: tbl-rq4-consent
+#| tbl-cap: "RQ4: sample after optional linkage consent."
+cons <- c(0.9, consent, 0.5)
+n_c <- floor(N_target * cons)
+ktab(data.frame(
+  `Linkage consent` = pct(cons),
+  n = n_c,
+  Power = pct(sapply(n_c, \(n) power_f2(f2_main, n))),
+  check.names = FALSE), align = "rrr")
+```
+
+```{r}
+#| label: tbl-rq4-cluster
+#| tbl-cap: "RQ4: area-level exposure. Design effect = 1 + (m − 1) × ICC, where ICC is the outcome's residual intra-area correlation."
+clus <- data.frame(m = c(5, 10, 10, 25), icc = c(0.02, 0.02, 0.05, 0.05))
+clus$deff  <- 1 + (clus$m - 1) * clus$icc
+clus$n_eff <- N_target / clus$deff
+ktab(data.frame(
+  `People per area` = clus$m,
+  ICC = clus$icc,
+  `Design effect` = sprintf("%.2f", clus$deff),
+  `Effective N` = round(clus$n_eff),
+  Power = pct(sapply(clus$n_eff, \(n) power_f2(f2_main, n))),
+  check.names = FALSE), align = "rrrrr")
+```
+
+## Measurement and design
+
+```{r}
+#| label: tbl-rel
+#| tbl-cap: "Measurement error (approx.): observed r = true r × √(rel x × rel y)."
+rel <- data.frame(rel_x = c(1, rel_x, 0.7, 0.6), rel_y = c(1, rel_y, rel_y, rel_y))
+rel$f2_obs <- r_to_f2(f2_to_r(f2_main) * sqrt(rel$rel_x * rel$rel_y))
+ktab(data.frame(
+  `Climate items` = sprintf("%.2f", rel$rel_x),
+  K10 = sprintf("%.2f", rel$rel_y),
+  `Observed f²` = sprintf("%.4f", rel$f2_obs),
+  `Power at N = 400` = pct(sapply(rel$f2_obs, \(f) power_f2(f, N_target))),
+  `N for 80%` = sapply(rel$f2_obs, n_for_power),
+  check.names = FALSE), align = "rrrrr")
+```
+
+```{r}
+#| label: tbl-corr
+#| tbl-cap: "Correlated stressors: unique effect if f² came from single-stressor studies."
+rho <- c(0, 0.3, 0.5, 0.7)
+ktab(data.frame(
+  `Correlation among stressors` = sprintf("%.1f", rho),
+  VIF = sprintf("%.2f", 1 / (1 - sapply(rho, r2_j))),
+  `Partial f²` = sprintf("%.4f", f2_main * (1 - sapply(rho, r2_j))),
+  `Power at N = 400` = pct(sapply(rho, \(r) power_f2(f2_main * (1 - r2_j(r)), N_target))),
+  check.names = FALSE), align = "rrrr")
+```
+
+```{r}
+#| label: tbl-range
+#| tbl-cap: "Exposure range restriction (approx., Thorndike Case II): one fieldwork window may miss drought or flood."
+k <- c(1, 0.8, 0.7, 0.5)
+f2_k <- r_to_f2(restrict(f2_to_r(f2_main), k))
+ktab(data.frame(
+  `Exposure SD (vs usual)` = pct(k),
+  `Observed f²` = sprintf("%.4f", f2_k),
+  `Power at N = 400` = pct(sapply(f2_k, \(f) power_f2(f, N_target))),
+  check.names = FALSE), align = "rrr")
+```
+
+```{r}
+#| label: tbl-cov
+#| tbl-cap: "Number of predictors in the model."
+p_vals <- c(12, 16, 20, 25)
+ktab(data.frame(
+  `Predictors in model` = p_vals,
+  `Power at N = 400` = pct(sapply(p_vals, \(p) power_f2(f2_main, N_target, p = p))),
+  check.names = FALSE), align = "rr")
+```
+
+## Simulation
+
+```{r}
+#| label: tbl-sim
+#| tbl-cap: "Rejection rates with 95% Monte Carlo intervals (target sample size, assumed stressor correlation, full covariate set)."
+ktab(data.frame(
+  Scenario = c("No true effect (Type I error check)", "Planned effect, normal errors",
+               "Skewed outcome, OLS", "Outcome split at the median (logistic)",
+               "Outcome split at top 20% (logistic)", "10% careless responders",
+               "20% careless responders"),
+  `Rejection rate` = unname(sapply(sim, mc_ci)),
+  check.names = FALSE), align = "lr")
+```
+
+**Checks.** With no true effect the simulation rejects `r pct(sim["null"])` of the time (target `r pct(alpha_main)`). At the planned effect it gives `r pct(sim["baseline"])`, matching the random-predictor calculation (`r pct(p_strict)`); G\*Power's fixed-predictor method gives `r pct(p_claim)`.
+
+## Recruitment and cohort
+
+```{r}
+#| label: tbl-recruit
+#| tbl-cap: "Completed surveys needed, and the Project Plan's 280–460 range."
+excls <- c(0.10, excl, 0.20, 0.30)
+ktab(data.frame(
+  `Exclusion rate` = pct(excls),
+  `Completions for 400 valid` = ceiling(N_target / (1 - excls)),
+  `Valid from 280` = floor(280 * (1 - excls)),
+  `Valid from 460` = floor(460 * (1 - excls)),
+  check.names = FALSE), align = "rrrr")
+```
+
+```{r}
+#| label: tbl-cohort
+#| tbl-cap: "Cohort size if retention applies only to those who opt in to recontact."
+coh <- data.frame(optin = c(optin, 0.8), resp = c(resp, resp))
+ktab(data.frame(
+  `Recontact opt-in` = pct(coh$optin),
+  `Wave response` = pct(coh$resp),
+  `Wave 2 n` = round(N_target * coh$optin * coh$resp),
+  `Wave 3 n` = round(N_target * coh$optin * coh$resp^2),
+  check.names = FALSE), align = "rrrr")
+```
+
+## Code
+
+```{r}
+#| ref.label: setup
+#| echo: true
+#| eval: false
+#| code-summary: "Assumptions and power functions"
+```
+
+```{r}
+#| ref.label: simulation
+#| echo: true
+#| eval: false
+#| code-summary: "Simulation"
+```
+
+::: {.callout-note collapse="true"}
+## Session info
+```{r}
+sessionInfo()
+```
+:::
